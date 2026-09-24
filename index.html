@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tagmill — Local Bulk AI Image Tagger</title>
+<link rel="stylesheet" href="css/app.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%233b5bdb'/%3E%3Cpath d='M8 12h16M8 16h12M8 20h14' stroke='white' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
+</head>
+<body>
+<div id="app">
+  <!-- ======================= SIDEBAR ======================= -->
+  <aside id="sidebar">
+    <div class="brand"><svg width="20" height="20" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#3b5bdb"/><path d="M8 12h16M8 16h12M8 20h14" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>
+      <span>Tagmill</span><span class="brand-sub">local bulk tagger</span></div>
+
+    <!-- Collection -->
+    <section class="panel" id="collection-panel">
+      <h2>Collection</h2>
+      <div class="btn-row">
+        <button id="btn-open-folder" class="btn primary" title="File System Access API (Chrome/Edge)">Open folder…</button>
+        <button id="btn-pick-files" class="btn" title="Fallback for browsers without folder access">Pick files…</button>
+      </div>
+      <div id="collection-info" class="hide">
+        <div class="kv"><span>Name</span><b id="col-name">—</b></div>
+        <div class="kv"><span>Images</span><b id="col-count">0</b></div>
+        <div class="kv"><span>Total size</span><b id="col-size">—</b></div>
+        <div class="btn-row">
+          <button id="btn-rescan" class="btn small">Rescan</button>
+          <button id="btn-close-col" class="btn small danger-ghost">Close</button>
+        </div>
+      </div>
+      <div id="saved-collections" class="hide">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin: 12px 0 6px;">
+          <h3 style="margin:0;">Saved collections</h3>
+          <button id="btn-clear-all-cols" class="btn tiny danger-ghost" title="Clear all saved collections (files on disk are untouched)">Clear all</button>
+        </div>
+        <div id="saved-collections-list"></div>
+      </div>
+    </section>
+
+    <!-- Model -->
+    <section class="panel" id="model-panel">
+      <h2>Model</h2>
+      <div id="model-status" class="model-status idle"><span class="dot"></span><span id="model-status-text">No model loaded</span></div>
+      <div id="model-progress" class="hide">
+        <div class="bar"><div id="model-bar"></div></div>
+        <div class="bar-label" id="model-progress-label"></div>
+      </div>
+      <div class="btn-row">
+        <button id="btn-model-manager" class="btn small">Manage…</button>
+        <button id="btn-unload-model" class="btn small" disabled>Unload</button>
+      </div>
+      <div class="kv small"><span>Runtime</span><b id="ep-status">—</b></div>
+    </section>
+
+    <!-- Job -->
+    <section class="panel" id="job-panel">
+      <h2>Tagging job</h2>
+      <div class="job-counts" id="job-counts">
+        <div class="jc"><i class="sw done"></i><span>Done</span><b id="c-done">0</b></div>
+        <div class="jc"><i class="sw failed"></i><span>Failed</span><b id="c-failed">0</b></div>
+        <div class="jc"><i class="sw skipped"></i><span>Skipped</span><b id="c-skipped">0</b></div>
+        <div class="jc"><i class="sw pending"></i><span>Waiting</span><b id="c-pending">0</b></div>
+        <div class="jc"><i class="sw processing"></i><span>Processing</span><b id="c-processing">0</b></div>
+      </div>
+      <div class="bar"><div id="job-bar"></div></div>
+      <div class="bar-label" id="job-label">Idle</div>
+      <div class="btn-row" id="job-controls">
+        <button id="btn-start" class="btn primary" disabled>Start tagging</button>
+        <button id="btn-pause" class="btn" disabled>Pause</button>
+        <button id="btn-retry-failed" class="btn small" disabled>Retry failed</button>
+      </div>
+      <div class="btn-row">
+        <button id="btn-process-selected" class="btn small" disabled>Tag selected only</button>
+        <button id="btn-tag-unprocessed" class="btn small" disabled>Tag unprocessed</button>
+      </div>
+      <details class="job-options">
+        <summary>Job options</summary>
+        <label class="opt"><input type="checkbox" id="opt-skip-done" checked> Skip already-tagged images</label>
+        <label class="opt"><input type="checkbox" id="opt-reuse-dup" checked> Reuse tags for identical files (dedupe)</label>
+        <label class="opt"><input type="checkbox" id="opt-gen-thumbs" checked> Generate thumbnails while tagging</label>
+        <label class="opt">Inference batch size
+          <input type="number" id="opt-batch" min="1" max="8" step="1" value="1" class="num"></label>
+        <div class="hint" id="runtime-hint"></div>
+      </details>
+    </section>
+
+    <!-- Tools -->
+    <section class="panel">
+      <h2>Tools</h2>
+      <div class="btn-col">
+        <button id="btn-export" class="btn small" disabled>Export JSON / CSV / TXT…</button>
+        <button id="btn-organize" class="btn small" disabled>Organize files (rename/move)…</button>
+        <button id="btn-settings" class="btn small">Thresholds &amp; settings…</button>
+        <button id="btn-storage" class="btn small">Storage &amp; maintenance…</button>
+      </div>
+    </section>
+
+    <section class="panel muted-panel">
+      <div class="kv small"><span>WASM threads</span><b id="kv-threads">—</b></div>
+      <div class="kv small"><span>Storage used</span><b id="kv-quota">—</b></div>
+      <button id="btn-about" class="btn tiny ghost">About / licenses</button>
+    </section>
+  </aside>
+
+  <!-- ======================= MAIN ======================= -->
+  <main id="main">
+    <div id="toolbar">
+      <input id="search" type="search" placeholder="Filter by tag (space = AND, -tag = exclude, cat:character, quoted = exact)" spellcheck="false" autocomplete="off">
+      <div id="tag-suggest" class="hide"></div>
+      <select id="filter-status" title="Status filter">
+        <option value="all">All statuses</option>
+        <option value="done">Tagged</option>
+        <option value="pending">Untagged</option>
+        <option value="failed">Failed</option>
+        <option value="skipped">Skipped</option>
+        <option value="missing">Missing on disk</option>
+      </select>
+      <select id="sort-by" title="Sort">
+        <option value="path">Sort: path</option>
+        <option value="name">Sort: name</option>
+        <option value="size">Sort: size</option>
+        <option value="conf">Sort: top confidence</option>
+        <option value="time">Sort: recently tagged</option>
+      </select>
+      <span id="match-count" class="match-count"></span>
+      <span class="spacer"></span>
+      <button id="btn-select-all-matching" class="btn small ghost" title="Select all currently matching images (operations apply to selection)">Select all matches</button>
+      <button id="btn-clear-selection" class="btn small ghost hide">Clear selection</button>
+      <button id="btn-remove-selected" class="btn small danger-ghost hide" title="Remove selected images from collection (files on disk untouched)">Remove selected</button>
+      <label class="opt-inline">Thumbs <input type="range" id="thumb-size" min="72" max="240" step="8" value="136"></label>
+    </div>
+
+    <div id="empty-state">
+      <div class="empty-inner">
+        <h1>Tag tens of thousands of images locally.</h1>
+        <p>Camie Tagger v2 runs entirely in your browser via multithreaded WASM — images never leave this machine.</p>
+        <ol>
+          <li><b>Open a folder</b> of images (or pick files).</li>
+          <li><b>Download a model variant</b> once (cached for future sessions).</li>
+          <li><b>Start tagging</b> — pause/resume any time; progress is saved locally.</li>
+          <li><b>Search &amp; organize</b> by tags, then export JSON/CSV or rename/move files.</li>
+        </ol>
+        <p class="fineprint">Built for 1k–50k+ image collections. Thumbnails &amp; metadata are streamed, the full-resolution images are never all held in memory.</p>
+      </div>
+    </div>
+
+    <div id="grid-viewport" class="hide">
+      <div id="grid-spacer"><div id="grid-cells"></div></div>
+    </div>
+  </main>
+
+  <!-- ======================= INSPECTOR ======================= -->
+  <aside id="inspector" class="hide">
+    <div class="insp-head">
+      <h2 id="insp-name">—</h2>
+      <button id="insp-close" class="btn tiny ghost">✕</button>
+    </div>
+    <div id="insp-imgwrap"><img id="insp-img" alt=""><div id="insp-img-note" class="hide"></div></div>
+    <div id="insp-meta" class="insp-meta"></div>
+    <div id="insp-status"></div>
+    <div id="insp-tags"></div>
+    <div class="insp-add">
+      <input id="insp-add-input" type="text" placeholder="Add tag manually…" list="tag-datalist" spellcheck="false">
+      <button id="insp-add-btn" class="btn small">Add</button>
+    </div>
+    <div class="btn-row">
+      <button id="insp-rerun" class="btn small">Re-tag this image</button>
+      <button id="insp-copy-tags" class="btn small ghost">Copy tags</button>
+      <button id="insp-delete-file" class="btn small danger-ghost" title="Remove image from collection (file on disk is untouched)">Remove</button>
+    </div>
+  </aside>
+</div>
+
+<datalist id="tag-datalist"></datalist>
+
+<!-- ======================= MODALS / OVERLAYS ======================= -->
+<div id="modal-root"></div>
+<div id="toasts"></div>
+<div id="crash-banner" class="hide">
+  <b>An unexpected error occurred.</b> <span id="crash-msg"></span>
+  Your tagging progress is saved — reload the page to continue.
+  <button onclick="location.reload()" class="btn small">Reload</button>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
