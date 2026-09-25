@@ -153,13 +153,43 @@ export async function planMoves(root, records, targetDirFn, tagsFor, { collision
   const plan = [];
   const dirCache = new Map();
   const taken = new Set();
+  // Different raw metadata values which sanitize to the same path get separate,
+  // readable folders instead of being silently merged.
+  const rawToDir = new Map();
+  const dirToRaw = new Map();
+
   for (let i = 0; i < records.length; i++) {
     const rec = records[i];
-    const rawDir = targetDirFn(rec, tagsFor, i) || 'untagged';
-    const dirPath = sanitizePath(rawDir, 'untagged');
+    const rawDir = String(targetDirFn(rec, tagsFor, i) || 'untagged');
+    const rawKey = rawDir;
+    let dirPath = rawToDir.get(rawKey);
+    if (!dirPath) {
+      const basePath = sanitizePath(rawDir, 'untagged');
+      dirPath = basePath;
+      const priorRaw = dirToRaw.get(basePath);
+      if (priorRaw !== undefined && priorRaw !== rawKey) {
+        const parts = basePath.split('/');
+        const stem = parts.pop() || 'untagged';
+        let n = 2;
+        do { dirPath = [...parts, `${stem} (${n++})`].join('/'); } while (dirToRaw.has(dirPath));
+      }
+      rawToDir.set(rawKey, dirPath);
+      dirToRaw.set(dirPath, rawKey);
+    }
+
     const oldName = rec.path.split('/').pop();
-    let dir = dirCache.get(dirPath);
-    if (!dir) { dir = await resolveDir(root, dirPath, true); dirCache.set(dirPath, dir); }
+    let dir;
+    try {
+      dir = dirCache.get(dirPath);
+      if (!dir) { dir = await resolveDir(root, dirPath, true); dirCache.set(dirPath, dir); }
+    } catch (e) {
+      // A browser/filesystem can still reject an exotic value. Keep the batch alive.
+      dirPath = 'untagged';
+      try {
+        dir = dirCache.get(dirPath) || await resolveDir(root, dirPath, true);
+        dirCache.set(dirPath, dir);
+      } catch { failedPlanItem(plan, rec, e); continue; }
+    }
     const key = dirPath + '/' + oldName.toLowerCase();
     let conflict = (await existsIn(dir, oldName)) || taken.has(key);
     let finalName = oldName;
@@ -173,6 +203,10 @@ export async function planMoves(root, records, targetDirFn, tagsFor, { collision
   return plan;
 }
 
+function failedPlanItem(plan, rec, error) {
+  plan.push({ kind: 'move', rec, fromPath: rec.path, toPath: null, targetDirPath: 'untagged', conflict: true, error: String(error?.message || error) });
+}
+
 /**
  * Execute planned ops. Returns {done, failed, undoEntries, newPaths: Map(recId -> newPath)}
  */
@@ -182,7 +216,7 @@ export async function executeOps(root, plan, { onProgress, signal, writeUndo } =
   const newPaths = new Map();
   for (const p of plan) {
     if (signal?.aborted) break;
-    if (p.conflict) { failed++; continue; }
+    if (p.conflict || !p.toPath) { failed++; continue; }
     try {
       const { file, dir: fromDir } = await resolveFile(root, p.fromPath);
       if (p.kind === 'rename') {

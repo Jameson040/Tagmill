@@ -72,11 +72,19 @@ export const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'jpe', 'png', 'webp', 'gif', '
 // deliberately NOT auto-included: heic/heic (no browser decode), svg (vector, different pipeline), psd etc.
 
 export function sanitizeFilename(s, fallback = 'file') {
-  // cross-platform conservative: replace path separators & control chars, trim dots/spaces at ends
-  let out = String(s).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/\s+/g, ' ').trim();
-  out = out.replace(/^\.+/, '').replace(/ +$/, '');
-  if (!out || out === '.') out = fallback;
-  return out.slice(0, 180); // leave room for extension
+  // File System Access names are stricter than a URL/path segment. Keep the readable
+  // value, but remove separators, controls, trailing dots/spaces, and DOS device names.
+  let out = String(s ?? '')
+    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[ .]+$/g, '');
+  if (!out || out === '.' || out === '..') out = fallback;
+
+  // Windows device names are rejected by browsers/filesystems even with an extension
+  // (and sometimes with trailing spaces/dots, already removed above).
+  if (/^(con|prn|aux|nul|clock\$|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(out)) out = `_${out}`;
+  return out.slice(0, 180) || fallback;
 }
 
 export function escapeHtml(s) {
